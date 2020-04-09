@@ -1,0 +1,5 @@
+server
+*.goo.ethos
+bin
+ethosChat*
+*.tar
