@@ -46,6 +46,7 @@ clean:
 	rm -fr *.goo.ethos
 	rm -fr $(SERVERROOT)
 	rm -fr ethosChat ethosChatIndex ethosChat.go
+	rm -fr $(TAR_OUT)
 
 archive: clean
 	mkdir -p $(SUBMISSION_OUT)
