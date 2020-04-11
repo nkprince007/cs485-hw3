@@ -31,3 +31,11 @@ clean:
 	rm -fr $(UDIR)
 	rm -fr $(SERVERROOT)
 	rm -fr ethosChat ethosChatIndex ethosChat.go
+
+archive: clean
+	mkdir -p $(SUBMISSION_OUT)
+	cp *.t $(SUBMISSION_OUT)
+	cp *.go $(SUBMISSION_OUT)
+	cp Makefile $(SUBMISSION_OUT)
+	tar -cvf $(TAR_OUT) $(SUBMISSION_OUT)
+	rm -fr $(SUBMISSION_OUT)
