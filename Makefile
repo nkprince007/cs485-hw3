@@ -1,4 +1,4 @@
-export UDIR= bin
+export UDIR= .
 export LDIR= .
 export GOC = x86_64-xen-ethos-6g
 export GOL = x86_64-xen-ethos-6l
@@ -17,18 +17,33 @@ export MINIMALTDROOT=$(SERVERROOT)/minimaltdfs
 
 SRC_FILES = $(wildcard *.go)
 BINARIES = $(patsubst %.go,%,$(SRC_FILES))
-TYPES = StructA StructB StructResult
-SUBMISSION_OUT := sangi.NaveenKumar.Assign2
+SUBMISSION_OUT := sangi.NaveenKumar.Assign3
 TAR_OUT := $(SUBMISSION_OUT).tar
 
 .PHONY: all install clean
-all: ethosChat.go $(BINARIES)
+all: $(BINARIES)
 
 ethosChat.go: EthosChat.t
 	$(ETN2GO) . ethosChat main $^
 
+ethosChatClient: ethosChatClient.go ethosChat.go
+	ethosGo $^
+
+ethosChatService: ethosChatService.go ethosChat.go
+	ethosGo $^
+
+install: $(BINARIES)
+	rm -fr $(SERVERROOT)
+	ethosParams $(SERVERROOT)
+	(cd $(SERVERROOT) && ethosMinimaltdBuilder)
+	ethosTypeInstall ethosChat
+	ethosDirectoryInstall user/nobody/chatrooms $(ETHOSROOT)/types/spec/ethosChat/ChatRoom all
+	ethosDirCreate $(ETHOSROOT)/services/ethosChat $(ETHOSROOT)/types/spec/ethosChat/ChatRpc all
+	install -D ethosChatClient ethosChatService $(ETHOSROOT)/programs
+
 clean:
-	rm -fr $(UDIR)
+	rm -fr ethosChatService ethosChatClient
+	rm -fr *.goo.ethos
 	rm -fr $(SERVERROOT)
 	rm -fr ethosChat ethosChatIndex ethosChat.go
 

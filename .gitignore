@@ -1,5 +1,8 @@
 server
 *.goo.ethos
-bin
-ethosChat*
+ethosChat.go
+ethosChat
+ethosChatIndex
+ethosChatClient
+ethosChatService
 *.tar

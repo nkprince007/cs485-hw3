@@ -12,9 +12,6 @@ Message struct {
     CreatedAt int64
 }
 
-Chat interface {
-    ListChatRooms() []ChatRoom
-    SelectChatRoom(ChatRoom) bool
-    CreateChatRoom(string) ChatRoom
-    BlacklistUser(ChatRoom, User)
+ChatRpc interface {
+    ListChatRooms() (rooms []ChatRoom)
 }
