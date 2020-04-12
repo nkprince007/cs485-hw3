@@ -3,11 +3,11 @@ package main
 import (
 	"ethos/altEthos"
 	"ethos/syscall"
-	// "bufio"
+	"bufio"
 	"fmt"
-	// "os"
-	// "regexp"
-	// "strings"
+	"os"
+	"regexp"
+	"strings"
 	"log"
 )
 
@@ -31,23 +31,25 @@ func main() {
 	}
 	defer altEthos.Close(fd)
 
-	// reader := bufio.NewReader(os.Stdin)
-	// fmt.Println("Ethos Chat")
-	// fmt.Println("---------------------")
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println("Ethos Chat")
+	fmt.Println("---------------------")
 
-	// for {
-	// 	fmt.Print("? ")
-	// 	text, _ := reader.ReadString('\n')
-	// 	text = strings.TrimSpace(text)
+	for {
+		fmt.Print("? ")
+		text, _ := reader.ReadString('\n')
+		text = strings.TrimSpace(text)
 
-	// 	if ok, _ := regexp.MatchString(`> list`, text); ok {
-	// 		call := &ChatRpcListChatRooms{}
-	// 		status = altEthos.ClientCall(fd, call)
-	// 		if status != syscall.StatusOk {
-	// 			log.Println("clientCall failed: ", status)
-	// 			altEthos.Exit(status)
-	// 		}
-	// 	}
-	// }
-
+		if ok, _ := regexp.MatchString(`> list`, text); ok {
+			call := &ChatRpcListChatRooms{}
+			status = altEthos.ClientCall(fd, call)
+			if status != syscall.StatusOk {
+				log.Println("clientCall failed: ", status)
+				altEthos.Exit(status)
+			}
+		} else if ok, _ := regexp.MatchString(`> quit`, text); ok {
+			log.Println("Quitting application.")
+			altEthos.Exit(syscall.StatusOk)
+		}
+	}
 }
