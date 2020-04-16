@@ -15,13 +15,11 @@ export SERVERROOT=server
 export ETHOSROOT=$(SERVERROOT)/rootfs
 export MINIMALTDROOT=$(SERVERROOT)/minimaltdfs
 
-SRC_FILES = $(wildcard *.go)
-BINARIES = $(patsubst %.go,%,$(SRC_FILES))
 SUBMISSION_OUT := sangi.NaveenKumar.Assign3
 TAR_OUT := $(SUBMISSION_OUT).tar
 
 .PHONY: all install clean
-all: $(BINARIES)
+all: ethosChat.go ethosChatClient ethosChatService
 
 ethosChat.go: EthosChat.t
 	$(ETN2GO) . ethosChat main $^
@@ -32,14 +30,15 @@ ethosChatClient: ethosChatClient.go ethosChat.go
 ethosChatService: ethosChatService.go ethosChat.go
 	ethosGo $^
 
-install: $(BINARIES)
-	rm -fr $(SERVERROOT)
+install: ethosChatClient ethosChatService
+	sudo rm -fr $(SERVERROOT)
 	ethosParams $(SERVERROOT)
 	(cd $(SERVERROOT) && ethosMinimaltdBuilder)
 	ethosTypeInstall ethosChat
 	ethosDirectoryInstall user/nobody/chatrooms $(ETHOSROOT)/types/spec/ethosChat/ChatRoom all
 	ethosDirCreate $(ETHOSROOT)/services/ethosChat $(ETHOSROOT)/types/spec/ethosChat/ChatRpc all
 	install -D ethosChatClient ethosChatService $(ETHOSROOT)/programs
+	ethosStringEncode /programs/ethosChatService >$(ETHOSROOT)/etc/init/services/ethosChatService
 
 clean:
 	rm -fr ethosChatService ethosChatClient
