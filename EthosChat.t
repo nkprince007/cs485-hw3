@@ -14,5 +14,5 @@ Message struct {
 
 ChatRpc interface {
     ListChatRooms() (rooms []ChatRoom)
-    CreateChatRoom(owner User, name string) (room ChatRoom)
+    CreateChatRoom(owner User, name string) (room ChatRoom, status bool)
 }

@@ -31,9 +31,13 @@ func listChatRoomsReply(rooms []ChatRoom) (ChatRpcProcedure) {
 	return nil
 }
 
-func createChatRoomReply(room ChatRoom) (ChatRpcProcedure) {
-	log.Println("Received createChatRoom reply: ", room)
-	fmt.Println("New chatroom created: ", room.Name)
+func createChatRoomReply(room ChatRoom, status bool) (ChatRpcProcedure) {
+	log.Println("Received createChatRoom reply: ", room, status)
+	if status {
+		fmt.Println("New chatroom created: ", room.Name)
+	} else {
+		fmt.Printf("Failed creating room %s, because a room with name already exists\n", room.Name)
+	}
 	return nil
 }
 
@@ -77,7 +81,7 @@ func main() {
 			status = altEthos.ClientCall(fd, call)
 			log.Println("reached here")
 			checkRpcStatus(status)
-		} else if ok, _ := regexp.MatchString(`> create [A-Za-z0-9_\/]+`, text); ok {
+		} else if ok, _ := regexp.MatchString(`> create [A-Za-z0-9_\-]+`, text); ok {
 			name := strings.TrimSpace(strings.Split(text, " ")[2])
 			log.Println("Sending createChatRoom request: ", name)
 			call := &ChatRpcCreateChatRoom{owner, name}

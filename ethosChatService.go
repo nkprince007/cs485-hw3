@@ -23,15 +23,28 @@ func createChatRoom(owner User, name string) (ChatRpcProcedure) {
 	}
 	defer altEthos.Close(fd)
 
+	files, status := altEthos.SubFiles(chatRoomsDir)
+	if status != syscall.StatusOk {
+		log.Printf("SubFiles failed %v\n", status)
+		altEthos.Exit(status)
+	}
+	for _, fileName := range files {
+		if fileName == name {
+			log.Printf("Chatroom %s already exists\n", name)
+			failedChatRoom := ChatRoom{[]User{}, owner, name}
+			return &ChatRpcCreateChatRoomReply{failedChatRoom, false}
+		}
+	}
+
 	chatRoom := ChatRoom{[]User{}, owner, name}
-	status = altEthos.WriteStream(fd, &chatRoom)
+	status = altEthos.WriteVar(fd, name, &chatRoom)
 	if status != syscall.StatusOk {
 		log.Println("WriteStream failed: ", chatRoom, status)
 		altEthos.Exit(status)
 	}
 
 	log.Printf("Chatroom created: %s\n", chatRoom.Name)
-	return &ChatRpcCreateChatRoomReply{chatRoom}
+	return &ChatRpcCreateChatRoomReply{chatRoom, true}
 }
 
 func listChatRooms() (ChatRpcProcedure) {
