@@ -12,11 +12,13 @@ import (
 )
 
 var owner = User(altEthos.GetUser())
+var currentRoom *ChatRoom
 
 func init() {
 	altEthos.LogToDirectory("application/ethosChatClient")
 	SetupChatRpcListChatRoomsReply(listChatRoomsReply)
 	SetupChatRpcCreateChatRoomReply(createChatRoomReply)
+	SetupChatRpcBlacklistUserReply(blacklistUserReply)
 }
 
 func listChatRoomsReply(rooms []ChatRoom) (ChatRpcProcedure) {
@@ -37,6 +39,16 @@ func createChatRoomReply(room ChatRoom, status bool) (ChatRpcProcedure) {
 		fmt.Println("New chatroom created: ", room.Name)
 	} else {
 		fmt.Printf("Failed creating room %s, because a room with name already exists\n", room.Name)
+	}
+	return nil
+}
+
+func blacklistUserReply(status bool) (ChatRpcProcedure) {
+	log.Println("Finished blacklistUser")
+	if status {
+		fmt.Println("User blacklisted successfully.\n")
+	} else {
+		fmt.Println("Selected chatroom does not exist.\n")
 	}
 	return nil
 }
@@ -86,6 +98,23 @@ func main() {
 			log.Println("Sending createChatRoom request: ", name)
 			call := &ChatRpcCreateChatRoom{owner, name}
 			status = altEthos.ClientCall(fd, call)
+			checkRpcStatus(status)
+		} else if ok, _ := regexp.MatchString(`> blacklist [A-Za-z0-9\/]+`, text); ok {
+			user := User(strings.TrimSpace(strings.Split(text, " ")[2]))
+			if currentRoom == nil {
+				fmt.Println("Please pick a room before you blacklist someone.")
+				fmt.Println("Use command `> select <chatroom>`")
+				continue
+			} else if currentRoom.Owner != owner {
+				fmt.Printf("You(%s) are not the owner of the chatroom %s.\n", owner, currentRoom.Name)
+				continue
+			} else if user == owner {
+				fmt.Printf("You(%s) cannot blacklist yourself from the chatroom %s.\n", owner, currentRoom.Name)
+			}
+
+			log.Printf("Sending blacklistUser request in chatroom %s for user %s\n", currentRoom, user)
+			call := &ChatRpcBlacklistUser{currentRoom.Name, owner}
+			status := altEthos.ClientCall(fd, call)
 			checkRpcStatus(status)
 		} else if ok, _ := regexp.MatchString(`> quit`, text); ok {
 			log.Println("Quitting application.")

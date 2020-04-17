@@ -4,6 +4,7 @@ import (
 	"ethos/altEthos"
 	"ethos/syscall"
 	"log"
+	"path"
 )
 
 var chatRoomsDir = "/user/nobody/chatrooms"
@@ -12,39 +13,7 @@ func init() {
 	altEthos.LogToDirectory("application/ethosChatService")
 	SetupChatRpcListChatRooms(listChatRooms)
 	SetupChatRpcCreateChatRoom(createChatRoom)
-}
-
-func createChatRoom(owner User, name string) (ChatRpcProcedure) {
-	log.Printf("createChatRoom request received for '%s' from '%s' \n", name, owner)
-	fd, status := altEthos.DirectoryOpen(chatRoomsDir)
-	if status != syscall.StatusOk {
-		log.Printf("DirectoryOpen failed %v\n", status)
-		altEthos.Exit(status)
-	}
-	defer altEthos.Close(fd)
-
-	files, status := altEthos.SubFiles(chatRoomsDir)
-	if status != syscall.StatusOk {
-		log.Printf("SubFiles failed %v\n", status)
-		altEthos.Exit(status)
-	}
-	for _, fileName := range files {
-		if fileName == name {
-			log.Printf("Chatroom %s already exists\n", name)
-			failedChatRoom := ChatRoom{[]User{}, owner, name}
-			return &ChatRpcCreateChatRoomReply{failedChatRoom, false}
-		}
-	}
-
-	chatRoom := ChatRoom{[]User{}, owner, name}
-	status = altEthos.WriteVar(fd, name, &chatRoom)
-	if status != syscall.StatusOk {
-		log.Println("WriteStream failed: ", chatRoom, status)
-		altEthos.Exit(status)
-	}
-
-	log.Printf("Chatroom created: %s\n", chatRoom.Name)
-	return &ChatRpcCreateChatRoomReply{chatRoom, true}
+	SetupChatRpcBlacklistUser(blacklistUser)
 }
 
 func listChatRooms() (ChatRpcProcedure) {
@@ -67,6 +36,56 @@ func listChatRooms() (ChatRpcProcedure) {
 	}
 
 	return &ChatRpcListChatRoomsReply{chatRooms}
+}
+
+func createChatRoom(owner User, name string) (ChatRpcProcedure) {
+	log.Printf("createChatRoom request received for '%s' from '%s' \n", name, owner)
+	fd, status := altEthos.DirectoryOpen(chatRoomsDir)
+	if status != syscall.StatusOk {
+		log.Printf("DirectoryOpen failed %v\n", status)
+		altEthos.Exit(status)
+	}
+	defer altEthos.Close(fd)
+
+	if altEthos.IsFile(path.Join(chatRoomsDir, name)) {
+		log.Printf("Chatroom %s already exists\n", name)
+		failedChatRoom := ChatRoom{[]User{}, owner, name}
+		return &ChatRpcCreateChatRoomReply{failedChatRoom, false}
+	}
+
+	chatRoom := ChatRoom{[]User{}, owner, name}
+	status = altEthos.WriteVar(fd, name, &chatRoom)
+	if status != syscall.StatusOk {
+		log.Println("WriteStream failed: ", chatRoom, status)
+		altEthos.Exit(status)
+	}
+
+	log.Printf("Chatroom created: %s\n", chatRoom.Name)
+	return &ChatRpcCreateChatRoomReply{chatRoom, true}
+}
+
+func blacklistUser(roomName string, user User) (ChatRpcProcedure) {
+	filePath := path.Join(chatRoomsDir, roomName)
+	if !altEthos.IsFile(filePath) {
+		log.Printf("Chatroom [%s] does not exist", roomName)
+		return &ChatRpcBlacklistUserReply{false}
+	}
+
+	var chatRoom ChatRoom
+	status := altEthos.Read(filePath, &chatRoom)
+	if status != syscall.StatusOk {
+		log.Println("Read failed: ", chatRoom, status)
+		altEthos.Exit(status)
+	}
+
+	chatRoom.BlacklistedUsers = append(chatRoom.BlacklistedUsers, user)
+	status = altEthos.Write(filePath, &chatRoom)
+	if status != syscall.StatusOk {
+		log.Println("Write failed: ", chatRoom, status)
+		altEthos.Exit(status)
+	}
+
+	return &ChatRpcBlacklistUserReply{true}
 }
 
 func main() {

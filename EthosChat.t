@@ -15,4 +15,5 @@ Message struct {
 ChatRpc interface {
     ListChatRooms() (rooms []ChatRoom)
     CreateChatRoom(owner User, name string) (room ChatRoom, status bool)
+    BlacklistUser(roomName string, user User) (status bool)
 }
