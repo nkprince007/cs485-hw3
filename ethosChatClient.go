@@ -19,6 +19,7 @@ func init() {
 	SetupChatRpcListChatRoomsReply(listChatRoomsReply)
 	SetupChatRpcCreateChatRoomReply(createChatRoomReply)
 	SetupChatRpcBlacklistUserReply(blacklistUserReply)
+	SetupChatRpcSelectChatRoomReply(selectChatRoomReply)
 }
 
 func listChatRoomsReply(rooms []ChatRoom) (ChatRpcProcedure) {
@@ -53,6 +54,15 @@ func blacklistUserReply(status bool) (ChatRpcProcedure) {
 	return nil
 }
 
+func selectChatRoomReply(room ChatRoom, status bool) (ChatRpcProcedure) {
+	if !status {
+		fmt.Println("ChatRoom does not exist or user blacklisted. Please try again.")
+	} else {
+		fmt.Printf("ChatRoom %s selected.\n", room.Name)
+	}
+	return nil
+}
+
 func checkRpcStatus(status syscall.Status) {
 	if status != syscall.StatusOk {
 		log.Println("clientCall failed: ", status)
@@ -64,18 +74,13 @@ func printUsage() {
 	fmt.Println("All commands start with a > sign. Please use it responsibly.")
 	fmt.Println("> list\t\t- Get list of channels")
 	fmt.Println("> help\t\t- Show help info")
-	fmt.Println("> create <name>\t- Create a channel with given name")
+	fmt.Println("> create <name>\t- Create a chat room with given name")
+	fmt.Println("> select <name>\t- Opens the chat room with given name")
 	fmt.Println("> quit\t\t- Exit application")
 }
 
 func main() {
 	log.Println("ethosChatClient started")
-	fd, status := altEthos.IpcRepeat("ethosChat", "", nil)
-	if status != syscall.StatusOk {
-		log.Println("Ipc failed: ", status)
-		altEthos.Exit(status)
-	}
-	defer altEthos.Close(fd)
 
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("Ethos Chat")
@@ -83,6 +88,11 @@ func main() {
 	printUsage()
 
 	for {
+		fd, status := altEthos.IpcRepeat("ethosChat", "", nil)
+		if status != syscall.StatusOk {
+			log.Println("Ipc failed: ", status)
+			altEthos.Exit(status)
+		}
 		fmt.Print("? ")
 		text, _ := reader.ReadString('\n')
 		text = strings.TrimSpace(text)
@@ -99,7 +109,7 @@ func main() {
 			call := &ChatRpcCreateChatRoom{owner, name}
 			status = altEthos.ClientCall(fd, call)
 			checkRpcStatus(status)
-		} else if ok, _ := regexp.MatchString(`> blacklist [A-Za-z0-9\/]+`, text); ok {
+		} else if ok, _ := regexp.MatchString(`> blacklist [A-Za-z0-9_\-]+`, text); ok {
 			user := User(strings.TrimSpace(strings.Split(text, " ")[2]))
 			if currentRoom == nil {
 				fmt.Println("Please pick a room before you blacklist someone.")
@@ -121,6 +131,13 @@ func main() {
 			altEthos.Exit(syscall.StatusOk)
 		} else if ok, _ := regexp.MatchString(`> help`, text); ok {
 			printUsage()
+		} else if ok, _ := regexp.MatchString(`> select [A-Za-z0-9_\-]+`, text); ok {
+			name := strings.TrimSpace(strings.Split(text, " ")[2])
+			call := &ChatRpcSelectChatRoom{name, owner}
+			status = altEthos.ClientCall(fd, call)
+			checkRpcStatus(status)
 		}
+
+		altEthos.Close(fd)
 	}
 }

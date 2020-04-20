@@ -14,6 +14,7 @@ func init() {
 	SetupChatRpcListChatRooms(listChatRooms)
 	SetupChatRpcCreateChatRoom(createChatRoom)
 	SetupChatRpcBlacklistUser(blacklistUser)
+	SetupChatRpcSelectChatRoom(selectChatRoom)
 }
 
 func listChatRooms() (ChatRpcProcedure) {
@@ -36,6 +37,37 @@ func listChatRooms() (ChatRpcProcedure) {
 	}
 
 	return &ChatRpcListChatRoomsReply{chatRooms}
+}
+
+func selectChatRoom(name string, user User) (ChatRpcProcedure) {
+	fd, status := altEthos.DirectoryOpen(chatRoomsDir)
+	if status != syscall.StatusOk {
+		log.Printf("DirectoryOpen failed %v\n", status)
+		altEthos.Exit(status)
+	}
+	defer altEthos.Close(fd)
+
+	var chatRoom ChatRoom
+	if !altEthos.IsFile(path.Join(chatRoomsDir, name)) {
+		log.Printf("Chatroom %s does not exist\n", name)
+		return &ChatRpcSelectChatRoomReply{chatRoom, false}
+	}
+
+	status = altEthos.ReadVar(fd, name, &chatRoom)
+	if status != syscall.StatusOk {
+		log.Println("ReaVar failed:", chatRoom, status)
+		altEthos.Exit(status)
+	}
+
+	for _, bUser := range chatRoom.BlacklistedUsers {
+		if bUser == user {
+			log.Println("User blocked by owner:", user)
+			var failedChatRoom ChatRoom
+			return &ChatRpcSelectChatRoomReply{failedChatRoom, false}
+		}
+	}
+
+	return &ChatRpcSelectChatRoomReply{chatRoom, true}
 }
 
 func createChatRoom(owner User, name string) (ChatRpcProcedure) {

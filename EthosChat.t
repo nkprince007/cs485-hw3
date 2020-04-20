@@ -16,4 +16,6 @@ ChatRpc interface {
     ListChatRooms() (rooms []ChatRoom)
     CreateChatRoom(owner User, name string) (room ChatRoom, status bool)
     BlacklistUser(roomName string, user User) (status bool)
+    SelectChatRoom(name string, user User) (room ChatRoom, status bool)
+    GetMessages(room ChatRoom, user User) (messages []Message)
 }
