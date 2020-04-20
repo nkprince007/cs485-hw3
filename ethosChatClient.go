@@ -2,17 +2,18 @@ package main
 
 import (
 	"ethos/altEthos"
+	"ethos/kernelTypes"
 	"ethos/syscall"
-	"bufio"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
+	"time"
 	"log"
 )
 
 var owner = User(altEthos.GetUser())
 var currentRoom *ChatRoom
+var msgShown = map[int64]bool{}
 
 func init() {
 	altEthos.LogToDirectory("application/ethosChatClient")
@@ -20,6 +21,27 @@ func init() {
 	SetupChatRpcCreateChatRoomReply(createChatRoomReply)
 	SetupChatRpcBlacklistUserReply(blacklistUserReply)
 	SetupChatRpcSelectChatRoomReply(selectChatRoomReply)
+	SetupChatRpcGetMessagesReply(getMessagesReply)
+	SetupChatRpcPostMessageReply(postMessageReply)
+}
+
+func postMessageReply(status bool) (ChatRpcProcedure) {
+	log.Println("PostMessageReply status:", status)
+	return nil
+}
+
+func getMessagesReply(messages []Message) (ChatRpcProcedure) {
+	for _, msg := range messages {
+		if msgShown[msg.CreatedAt] {
+			continue
+		}
+
+		timestamp := time.NanosecondsToLocalTime(msg.CreatedAt)
+		ts := timestamp.Format(time.Stamp)
+		fmt.Printf("[%s] %s: %s\n", ts, msg.SentBy, msg.Content)
+		msgShown[msg.CreatedAt] = true
+	}
+	return nil
 }
 
 func listChatRoomsReply(rooms []ChatRoom) (ChatRpcProcedure) {
@@ -73,21 +95,41 @@ func checkRpcStatus(status syscall.Status) {
 
 func printUsage() {
 	fmt.Println("All commands start with a > sign. Please use it responsibly.")
-	fmt.Println("> list\t\t- Get list of channels")
-	fmt.Println("> help\t\t- Show help info")
-	fmt.Println("> create <name>\t- Create a chat room with given name")
-	fmt.Println("> select <name>\t- Opens the chat room with given name")
+	fmt.Println("> list\t\t\t- Get list of channels")
+	fmt.Println("> help\t\t\t- Show help info")
+	fmt.Println("> create <name>\t\t- Create a chat room with given name")
+	fmt.Println("> select <name>\t\t- Opens the chat room with given name")
 	fmt.Println("> blacklist <user>\t- Blacklist user from current chat room")
-	fmt.Println("> quit\t\t- Exit application")
+	fmt.Println("> quit\t\t\t- Exit application")
+}
+
+func pollMessages() {
+	if currentRoom != nil {
+		fd, status := altEthos.IpcRepeat("ethosChat", "", nil)
+		if status != syscall.StatusOk {
+			log.Println("Ipc failed: ", status)
+			altEthos.Exit(status)
+		}
+		call := &ChatRpcGetMessages{*currentRoom}
+		status = altEthos.ClientCall(fd, call)
+		checkRpcStatus(status)
+		altEthos.Close(fd)
+	}
+	time.AfterFunc(1e9, func() {
+		pollMessages()
+	})
 }
 
 func main() {
 	log.Println("ethosChatClient started")
 
-	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("Ethos Chat")
 	fmt.Println(strings.Repeat("-", 20))
 	printUsage()
+
+	time.AfterFunc(1e9, func() {
+		pollMessages()
+	})
 
 	for {
 		fd, status := altEthos.IpcRepeat("ethosChat", "", nil)
@@ -95,15 +137,21 @@ func main() {
 			log.Println("Ipc failed: ", status)
 			altEthos.Exit(status)
 		}
+
 		fmt.Print("? ")
-		text, _ := reader.ReadString('\n')
-		text = strings.TrimSpace(text)
+
+		var inputK kernelTypes.String
+		status = altEthos.ReadStream(syscall.Stdin, &inputK)
+		if status != syscall.StatusOk {
+			fmt.Printf("Error while reading syscall.Stdin: %v", status)
+		}
+		input := string(inputK)
+		text := strings.TrimSpace(input)
 
 		if ok, _ := regexp.MatchString(`> list`, text); ok {
 			log.Println("Sending listChatRoom request.")
 			call := &ChatRpcListChatRooms{}
 			status = altEthos.ClientCall(fd, call)
-			log.Println("reached here")
 			checkRpcStatus(status)
 		} else if ok, _ := regexp.MatchString(`> create [A-Za-z0-9_\-]+`, text); ok {
 			name := strings.TrimSpace(strings.Split(text, " ")[2])
@@ -142,6 +190,14 @@ func main() {
 			call := &ChatRpcSelectChatRoom{name, owner}
 			status = altEthos.ClientCall(fd, call)
 			checkRpcStatus(status)
+		} else {
+			if currentRoom != nil {
+				now := time.Nanoseconds()
+				msg := Message{*currentRoom, owner, now, text}
+				call := &ChatRpcPostMessage{msg}
+				status = altEthos.ClientCall(fd, call)
+				checkRpcStatus(status)
+			}
 		}
 
 		altEthos.Close(fd)

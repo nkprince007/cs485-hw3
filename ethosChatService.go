@@ -15,6 +15,51 @@ func init() {
 	SetupChatRpcCreateChatRoom(createChatRoom)
 	SetupChatRpcBlacklistUser(blacklistUser)
 	SetupChatRpcSelectChatRoom(selectChatRoom)
+	SetupChatRpcGetMessages(getMessages)
+	SetupChatRpcPostMessage(postMessage)
+}
+
+func postMessage(msg Message) (ChatRpcProcedure) {
+	log.Println("Received message:", msg)
+	room := msg.ChatRoom
+	dirPath := "/user/nobody/" + room.Name
+	fd, status := altEthos.DirectoryOpen(dirPath)
+	if status != syscall.StatusOk {
+		log.Printf("DirectoryOpen failed %v\n", status)
+		return &ChatRpcPostMessageReply{false}
+	}
+	defer altEthos.Close(fd)
+
+	status = altEthos.WriteStream(fd, &msg)
+	if status != syscall.StatusOk {
+		log.Println("WriteStream failed: ", status, msg)
+		return &ChatRpcPostMessageReply{false}
+	}
+
+	return &ChatRpcPostMessageReply{true}
+}
+
+func getMessages(room ChatRoom) (ChatRpcProcedure) {
+	log.Println("GetMessages request received:", room.Name)
+	messages := []Message{}
+	dirPath := "/user/nobody/" + room.Name
+	fd, status := altEthos.DirectoryOpen(dirPath)
+	if status != syscall.StatusOk {
+		log.Printf("DirectoryOpen failed %v\n", status)
+		return &ChatRpcGetMessagesReply{messages}
+	}
+	defer altEthos.Close(fd)
+
+	for {
+		msg := Message{}
+		status = altEthos.ReadStream(fd, &msg)
+		if status != syscall.StatusOk {
+			break
+		}
+		messages = append(messages, msg)
+	}
+
+	return &ChatRpcGetMessagesReply{messages}
 }
 
 func listChatRooms() (ChatRpcProcedure) {
@@ -48,11 +93,6 @@ func selectChatRoom(name string, user User) (ChatRpcProcedure) {
 	defer altEthos.Close(fd)
 
 	var chatRoom ChatRoom
-	if !altEthos.IsFile(path.Join(chatRoomsDir, name)) {
-		log.Printf("Chatroom %s does not exist\n", name)
-		return &ChatRpcSelectChatRoomReply{chatRoom, false}
-	}
-
 	status = altEthos.ReadVar(fd, name, &chatRoom)
 	if status != syscall.StatusOk {
 		log.Println("ReaVar failed:", chatRoom, status)
@@ -93,7 +133,8 @@ func createChatRoom(owner User, name string) (ChatRpcProcedure) {
 	}
 
 	dirPath := "/user/nobody/" + name
-	status = altEthos.DirectoryCreate(dirPath, &chatRoom, "all")
+	var msg Message
+	status = altEthos.DirectoryCreate(dirPath, &msg, "all")
 	if status != syscall.StatusOk {
 		log.Println("CreateDirectory failed:", chatRoom, status)
 		altEthos.Exit(status)
@@ -128,6 +169,9 @@ func blacklistUser(roomName string, user User) (ChatRpcProcedure) {
 }
 
 func main() {
+	var tree altEthos.EventTreeSlice
+	var next []syscall.EventId
+
 	log.Println("ethosChatService started...")
 	listeningFd, status := altEthos.Advertise("ethosChat")
 	if status != syscall.StatusOk {
@@ -136,15 +180,30 @@ func main() {
 	}
 	log.Println("ethosChatService advertised: ", status)
 
+	event, status := altEthos.ImportAsync(listeningFd, &ChatRpc{}, altEthos.HandleImport)
+	if status != syscall.StatusOk {
+		log.Println("Import failed:", status)
+		altEthos.Exit(status)
+	}
+
+	next = append(next, event)
+	tree = altEthos.WaitTreeCreateOr(next)
+
 	for {
-		_, fd, status := altEthos.Import(listeningFd)
-		if status != syscall.StatusOk {
-			log.Println("Error importing service: ", fd, status)
-			altEthos.Exit(status)
+		tree, _ = altEthos.Block(tree)
+		completed, pending := altEthos.GetTreeEvents(tree)
+		for _, eventId := range completed {
+			eventInfo, status := altEthos.OnComplete(eventId)
+			if status != syscall.StatusOk {
+				log.Println("OnComplete_failed", eventInfo, status)
+				return
+			}
+			eventInfo.Do()
 		}
 
-		log.Println("Accepted connection: ", status)
-		t := ChatRpc{}
-		status = altEthos.Handle(fd, &t)
+		next = nil
+		next = append(next, pending...)
+		next = append(next, altEthos.RetrievePostedEvents()...)
+		tree = altEthos.WaitTreeCreateOr(next)
 	}
 }
