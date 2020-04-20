@@ -34,6 +34,13 @@ func postMessageReply(status bool, issue string) (ChatRpcProcedure) {
 }
 
 func getMessagesReply(messages []Message) (ChatRpcProcedure) {
+	if messages == nil {
+		fmt.Println("You were blacklisted from this channel.")
+		fmt.Println("Please switch to a new channel using > select <name> before continuing.")
+		currentRoom = nil
+		return nil
+	}
+
 	for _, msg := range messages {
 		if msgShown[msg.CreatedAt] {
 			continue
@@ -141,7 +148,7 @@ func parseCommands(text string) {
 		}
 
 		log.Printf("Sending blacklistUser request in chatroom %s for user %s\n", currentRoom, user)
-		call := &ChatRpcBlacklistUser{currentRoom.Name, owner}
+		call := &ChatRpcBlacklistUser{currentRoom.Name, user}
 		status := altEthos.ClientCall(fd, call)
 		checkRpcStatus(status)
 	} else if ok, _ := regexp.MatchString(`> quit`, text); ok {
@@ -155,13 +162,16 @@ func parseCommands(text string) {
 		status = altEthos.ClientCall(fd, call)
 		checkRpcStatus(status)
 	} else {
-		if currentRoom != nil {
-			now := time.Nanoseconds()
-			msg := Message{*currentRoom, owner, now, text}
-			call := &ChatRpcPostMessage{msg}
-			status = altEthos.ClientCall(fd, call)
-			checkRpcStatus(status)
+		if currentRoom == nil {
+			fmt.Println("Please pick a room before you send a message.")
+			fmt.Println("Use command `> select <chatroom>`")
+			return
 		}
+		now := time.Nanoseconds()
+		msg := Message{*currentRoom, owner, now, text}
+		call := &ChatRpcPostMessage{msg}
+		status = altEthos.ClientCall(fd, call)
+		checkRpcStatus(status)
 	}
 }
 
@@ -172,7 +182,7 @@ func pollMessages(_ altEthos.StatusEventInfo) {
 			log.Println("Ipc failed: ", status)
 			altEthos.Exit(status)
 		}
-		call := &ChatRpcGetMessages{*currentRoom}
+		call := &ChatRpcGetMessages{*currentRoom, owner}
 		status = altEthos.ClientCall(fd, call)
 		checkRpcStatus(status)
 		altEthos.Close(fd)

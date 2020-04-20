@@ -67,7 +67,7 @@ func postMessage(msg Message) (ChatRpcProcedure) {
 	return &ChatRpcPostMessageReply{true, ""}
 }
 
-func getMessages(room ChatRoom) (ChatRpcProcedure) {
+func getMessages(room ChatRoom, user User) (ChatRpcProcedure) {
 	log.Println("GetMessages request received:", room.Name)
 	messages := []Message{}
 	dirPath := "/user/nobody/" + room.Name
@@ -77,6 +77,10 @@ func getMessages(room ChatRoom) (ChatRpcProcedure) {
 		return &ChatRpcGetMessagesReply{messages}
 	}
 	defer altEthos.Close(fd)
+
+	if _, ok := checkUserPermissions(user, room.Name); !ok {
+		return &ChatRpcGetMessagesReply{nil}
+	}
 
 	for {
 		msg := Message{}
