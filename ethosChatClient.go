@@ -11,7 +11,7 @@ import (
 	"log"
 )
 
-var owner = User(altEthos.GetUser())
+var currentUser = User(altEthos.GetUser())
 var currentRoom *ChatRoom
 var msgShown = map[int64]bool{}
 
@@ -124,13 +124,13 @@ func parseCommands(text string) {
 
 	if ok, _ := regexp.MatchString(`> list`, text); ok {
 		log.Println("Sending listChatRoom request.")
-		call := &ChatRpcListChatRooms{}
+		call := &ChatRpcListChatRooms{currentUser}
 		status = altEthos.ClientCall(fd, call)
 		checkRpcStatus(status)
 	} else if ok, _ := regexp.MatchString(`> create [A-Za-z0-9_\-]+`, text); ok {
 		name := strings.TrimSpace(strings.Split(text, " ")[2])
 		log.Println("Sending createChatRoom request: ", name)
-		call := &ChatRpcCreateChatRoom{owner, name}
+		call := &ChatRpcCreateChatRoom{currentUser, name}
 		status = altEthos.ClientCall(fd, call)
 		checkRpcStatus(status)
 	} else if ok, _ := regexp.MatchString(`> blacklist [A-Za-z0-9_\-]+`, text); ok {
@@ -139,11 +139,15 @@ func parseCommands(text string) {
 			fmt.Println("Please pick a room before you blacklist someone.")
 			fmt.Println("Use command `> select <chatroom>`")
 			return
-		} else if currentRoom.Owner != owner {
-			fmt.Printf("You(%s) are not the owner of the chatroom %s.\n", owner, currentRoom.Name)
+		}
+
+		if currentRoom.Owner != currentUser {
+			fmt.Printf("You(%s) are not the owner of the chatroom %s.\n", currentUser, currentRoom.Name)
 			return
-		} else if user == owner {
-			fmt.Printf("You(%s) cannot blacklist yourself from the chatroom %s.\n", owner, currentRoom.Name)
+		}
+
+		if user == currentUser {
+			fmt.Printf("You(%s) cannot blacklist yourself from the chatroom %s.\n", currentUser, currentRoom.Name)
 			return
 		}
 
@@ -158,7 +162,7 @@ func parseCommands(text string) {
 		printUsage()
 	} else if ok, _ := regexp.MatchString(`> select [A-Za-z0-9_\-]+`, text); ok {
 		name := strings.TrimSpace(strings.Split(text, " ")[2])
-		call := &ChatRpcSelectChatRoom{name, owner}
+		call := &ChatRpcSelectChatRoom{name, currentUser}
 		status = altEthos.ClientCall(fd, call)
 		checkRpcStatus(status)
 	} else {
@@ -168,7 +172,7 @@ func parseCommands(text string) {
 			return
 		}
 		now := time.Nanoseconds()
-		msg := Message{*currentRoom, owner, now, text}
+		msg := Message{*currentRoom, currentUser, now, text}
 		call := &ChatRpcPostMessage{msg}
 		status = altEthos.ClientCall(fd, call)
 		checkRpcStatus(status)
@@ -182,7 +186,7 @@ func pollMessages(_ altEthos.StatusEventInfo) {
 			log.Println("Ipc failed: ", status)
 			altEthos.Exit(status)
 		}
-		call := &ChatRpcGetMessages{*currentRoom, owner}
+		call := &ChatRpcGetMessages{*currentRoom, currentUser}
 		status = altEthos.ClientCall(fd, call)
 		checkRpcStatus(status)
 		altEthos.Close(fd)

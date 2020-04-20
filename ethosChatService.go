@@ -94,7 +94,7 @@ func getMessages(room ChatRoom, user User) (ChatRpcProcedure) {
 	return &ChatRpcGetMessagesReply{messages}
 }
 
-func listChatRooms() (ChatRpcProcedure) {
+func listChatRooms(user User) (ChatRpcProcedure) {
 	fd, status := altEthos.DirectoryOpen(chatRoomsDir)
 	if status != syscall.StatusOk {
 		log.Printf("DirectoryOpen failed %v\n", status)
@@ -109,6 +109,13 @@ func listChatRooms() (ChatRpcProcedure) {
 		status = altEthos.ReadStream(fd, &chatRoom)
 		if status != syscall.StatusOk {
 			break
+		}
+
+		// hide blacklisted chatrooms
+		for _, bUser := range chatRoom.BlacklistedUsers {
+			if bUser == user {
+				continue
+			}
 		}
 		chatRooms = append(chatRooms, chatRoom)
 	}
