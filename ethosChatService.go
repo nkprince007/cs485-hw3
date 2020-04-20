@@ -19,6 +19,29 @@ func init() {
 	SetupChatRpcPostMessage(postMessage)
 }
 
+func checkUserPermissions(user User, name string) (ChatRoom, bool) {
+	fd, status := altEthos.DirectoryOpen(chatRoomsDir)
+	if status != syscall.StatusOk {
+		log.Printf("DirectoryOpen failed %v\n", status)
+		altEthos.Exit(status)
+	}
+	defer altEthos.Close(fd)
+
+	var chatRoom ChatRoom
+	status = altEthos.ReadVar(fd, name, &chatRoom)
+	if status != syscall.StatusOk {
+		log.Println("ReaVar failed:", chatRoom, status)
+		altEthos.Exit(status)
+	}
+
+	for _, bUser := range chatRoom.BlacklistedUsers {
+		if bUser == user {
+			return chatRoom, false
+		}
+	}
+	return chatRoom, true
+}
+
 func postMessage(msg Message) (ChatRpcProcedure) {
 	log.Println("Received message:", msg)
 	room := msg.ChatRoom
@@ -26,17 +49,22 @@ func postMessage(msg Message) (ChatRpcProcedure) {
 	fd, status := altEthos.DirectoryOpen(dirPath)
 	if status != syscall.StatusOk {
 		log.Printf("DirectoryOpen failed %v\n", status)
-		return &ChatRpcPostMessageReply{false}
+		return &ChatRpcPostMessageReply{false, "No chat room found."}
 	}
 	defer altEthos.Close(fd)
+
+
+	if _, ok := checkUserPermissions(msg.SentBy, msg.ChatRoom.Name); !ok {
+		return &ChatRpcPostMessageReply{false, "User blacklisted."}
+	}
 
 	status = altEthos.WriteStream(fd, &msg)
 	if status != syscall.StatusOk {
 		log.Println("WriteStream failed: ", status, msg)
-		return &ChatRpcPostMessageReply{false}
+		return &ChatRpcPostMessageReply{false, "WriteStream failure."}
 	}
 
-	return &ChatRpcPostMessageReply{true}
+	return &ChatRpcPostMessageReply{true, ""}
 }
 
 func getMessages(room ChatRoom) (ChatRpcProcedure) {
@@ -85,29 +113,8 @@ func listChatRooms() (ChatRpcProcedure) {
 }
 
 func selectChatRoom(name string, user User) (ChatRpcProcedure) {
-	fd, status := altEthos.DirectoryOpen(chatRoomsDir)
-	if status != syscall.StatusOk {
-		log.Printf("DirectoryOpen failed %v\n", status)
-		altEthos.Exit(status)
-	}
-	defer altEthos.Close(fd)
-
-	var chatRoom ChatRoom
-	status = altEthos.ReadVar(fd, name, &chatRoom)
-	if status != syscall.StatusOk {
-		log.Println("ReaVar failed:", chatRoom, status)
-		altEthos.Exit(status)
-	}
-
-	for _, bUser := range chatRoom.BlacklistedUsers {
-		if bUser == user {
-			log.Println("User blocked by owner:", user)
-			var failedChatRoom ChatRoom
-			return &ChatRpcSelectChatRoomReply{failedChatRoom, false}
-		}
-	}
-
-	return &ChatRpcSelectChatRoomReply{chatRoom, true}
+	chatRoom, ok := checkUserPermissions(user, name);
+	return &ChatRpcSelectChatRoomReply{chatRoom, ok}
 }
 
 func createChatRoom(owner User, name string) (ChatRpcProcedure) {
@@ -169,9 +176,6 @@ func blacklistUser(roomName string, user User) (ChatRpcProcedure) {
 }
 
 func main() {
-	var tree altEthos.EventTreeSlice
-	var next []syscall.EventId
-
 	log.Println("ethosChatService started...")
 	listeningFd, status := altEthos.Advertise("ethosChat")
 	if status != syscall.StatusOk {
@@ -186,10 +190,11 @@ func main() {
 		altEthos.Exit(status)
 	}
 
-	next = append(next, event)
-	tree = altEthos.WaitTreeCreateOr(next)
+	var tree altEthos.EventTreeSlice
+	next := []syscall.EventId{event}
 
 	for {
+		tree = altEthos.WaitTreeCreateOr(next)
 		tree, _ = altEthos.Block(tree)
 		completed, pending := altEthos.GetTreeEvents(tree)
 		for _, eventId := range completed {
@@ -204,6 +209,5 @@ func main() {
 		next = nil
 		next = append(next, pending...)
 		next = append(next, altEthos.RetrievePostedEvents()...)
-		tree = altEthos.WaitTreeCreateOr(next)
 	}
 }

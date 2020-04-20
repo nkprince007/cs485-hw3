@@ -25,8 +25,11 @@ func init() {
 	SetupChatRpcPostMessageReply(postMessageReply)
 }
 
-func postMessageReply(status bool) (ChatRpcProcedure) {
+func postMessageReply(status bool, issue string) (ChatRpcProcedure) {
 	log.Println("PostMessageReply status:", status)
+	if !status {
+		fmt.Println("Sending message failed. Reason:" + issue)
+	}
 	return nil
 }
 
@@ -82,6 +85,7 @@ func selectChatRoomReply(room ChatRoom, status bool) (ChatRpcProcedure) {
 	} else {
 		fmt.Printf("ChatRoom %s selected.\n", room.Name)
 		currentRoom = &room
+		msgShown = map[int64]bool{}
 	}
 	return nil
 }
@@ -100,10 +104,68 @@ func printUsage() {
 	fmt.Println("> create <name>\t\t- Create a chat room with given name")
 	fmt.Println("> select <name>\t\t- Opens the chat room with given name")
 	fmt.Println("> blacklist <user>\t- Blacklist user from current chat room")
-	fmt.Println("> quit\t\t\t- Exit application")
+	fmt.Println("> quit\t\t\t- Exit application\n")
 }
 
-func pollMessages() {
+func parseCommands(text string) {
+	fd, status := altEthos.IpcRepeat("ethosChat", "", nil)
+	if status != syscall.StatusOk {
+		log.Println("Ipc failed: ", status)
+		altEthos.Exit(status)
+	}
+	defer altEthos.Close(fd)
+
+	if ok, _ := regexp.MatchString(`> list`, text); ok {
+		log.Println("Sending listChatRoom request.")
+		call := &ChatRpcListChatRooms{}
+		status = altEthos.ClientCall(fd, call)
+		checkRpcStatus(status)
+	} else if ok, _ := regexp.MatchString(`> create [A-Za-z0-9_\-]+`, text); ok {
+		name := strings.TrimSpace(strings.Split(text, " ")[2])
+		log.Println("Sending createChatRoom request: ", name)
+		call := &ChatRpcCreateChatRoom{owner, name}
+		status = altEthos.ClientCall(fd, call)
+		checkRpcStatus(status)
+	} else if ok, _ := regexp.MatchString(`> blacklist [A-Za-z0-9_\-]+`, text); ok {
+		user := User(strings.TrimSpace(strings.Split(text, " ")[2]))
+		if currentRoom == nil {
+			fmt.Println("Please pick a room before you blacklist someone.")
+			fmt.Println("Use command `> select <chatroom>`")
+			return
+		} else if currentRoom.Owner != owner {
+			fmt.Printf("You(%s) are not the owner of the chatroom %s.\n", owner, currentRoom.Name)
+			return
+		} else if user == owner {
+			fmt.Printf("You(%s) cannot blacklist yourself from the chatroom %s.\n", owner, currentRoom.Name)
+			return
+		}
+
+		log.Printf("Sending blacklistUser request in chatroom %s for user %s\n", currentRoom, user)
+		call := &ChatRpcBlacklistUser{currentRoom.Name, owner}
+		status := altEthos.ClientCall(fd, call)
+		checkRpcStatus(status)
+	} else if ok, _ := regexp.MatchString(`> quit`, text); ok {
+		log.Println("Quitting application.")
+		altEthos.Exit(syscall.StatusOk)
+	} else if ok, _ := regexp.MatchString(`> help`, text); ok {
+		printUsage()
+	} else if ok, _ := regexp.MatchString(`> select [A-Za-z0-9_\-]+`, text); ok {
+		name := strings.TrimSpace(strings.Split(text, " ")[2])
+		call := &ChatRpcSelectChatRoom{name, owner}
+		status = altEthos.ClientCall(fd, call)
+		checkRpcStatus(status)
+	} else {
+		if currentRoom != nil {
+			now := time.Nanoseconds()
+			msg := Message{*currentRoom, owner, now, text}
+			call := &ChatRpcPostMessage{msg}
+			status = altEthos.ClientCall(fd, call)
+			checkRpcStatus(status)
+		}
+	}
+}
+
+func pollMessages(_ altEthos.StatusEventInfo) {
 	if currentRoom != nil {
 		fd, status := altEthos.IpcRepeat("ethosChat", "", nil)
 		if status != syscall.StatusOk {
@@ -115,91 +177,81 @@ func pollMessages() {
 		checkRpcStatus(status)
 		altEthos.Close(fd)
 	}
-	time.AfterFunc(1e9, func() {
-		pollMessages()
-	})
+
+	log.Println("tock")
+
+	milliseconds := 250
+	timeExpired := altEthos.GetTime() + syscall.Time64(milliseconds * 1e6)
+	eventExpiration, status := altEthos.BeepAsync(timeExpired, pollMessages)
+	if status != syscall.StatusOk {
+		log.Println("altEthos.BeepAsync failed", status)
+		return
+	}
+
+	altEthos.PostEvent(eventExpiration)
+	return
+}
+
+func onReadInput(info altEthos.ReadStreamEventInfo) {
+	if v := info.V.(*kernelTypes.String); v != nil {
+		input := string(*v)
+		text := strings.TrimSpace(input)
+
+		parseCommands(text)
+
+		var inputK kernelTypes.String
+		event, status := altEthos.ReadStreamAsync(syscall.Stdin, &inputK, onReadInput)
+		if status != syscall.StatusOk {
+			log.Println("altEthos.ReadStreamAsync failed", status)
+			return
+		}
+
+		altEthos.PostEvent(event)
+		return
+	}
 }
 
 func main() {
-	log.Println("ethosChatClient started")
+	var tree altEthos.EventTreeSlice
+	next := []syscall.EventId{}
 
+	log.Println("ethosChatClient started")
 	fmt.Println("Ethos Chat")
 	fmt.Println(strings.Repeat("-", 20))
 	printUsage()
 
-	time.AfterFunc(1e9, func() {
-		pollMessages()
-	})
+	var inputK kernelTypes.String
+	event, status := altEthos.ReadStreamAsync(syscall.Stdin, &inputK, onReadInput)
+	if status != syscall.StatusOk {
+		log.Println("altEthos.ReadStreamAsync failed", status)
+		return
+	}
+	next = append(next, event)
+
+	milliseconds := 250
+	timeExpired := altEthos.GetTime() + syscall.Time64(milliseconds * 1e6)
+	eventExpiration, status := altEthos.BeepAsync(timeExpired, pollMessages)
+	if status != syscall.StatusOk {
+		log.Println("altEthos.BeepAsync failed", status)
+		return
+	}
+	next = append(next, eventExpiration)
 
 	for {
-		fd, status := altEthos.IpcRepeat("ethosChat", "", nil)
-		if status != syscall.StatusOk {
-			log.Println("Ipc failed: ", status)
-			altEthos.Exit(status)
-		}
-
-		fmt.Print("? ")
-
-		var inputK kernelTypes.String
-		status = altEthos.ReadStream(syscall.Stdin, &inputK)
-		if status != syscall.StatusOk {
-			fmt.Printf("Error while reading syscall.Stdin: %v", status)
-		}
-		input := string(inputK)
-		text := strings.TrimSpace(input)
-
-		if ok, _ := regexp.MatchString(`> list`, text); ok {
-			log.Println("Sending listChatRoom request.")
-			call := &ChatRpcListChatRooms{}
-			status = altEthos.ClientCall(fd, call)
-			checkRpcStatus(status)
-		} else if ok, _ := regexp.MatchString(`> create [A-Za-z0-9_\-]+`, text); ok {
-			name := strings.TrimSpace(strings.Split(text, " ")[2])
-			log.Println("Sending createChatRoom request: ", name)
-			call := &ChatRpcCreateChatRoom{owner, name}
-			status = altEthos.ClientCall(fd, call)
-			checkRpcStatus(status)
-		} else if ok, _ := regexp.MatchString(`> blacklist [A-Za-z0-9_\-]+`, text); ok {
-			user := User(strings.TrimSpace(strings.Split(text, " ")[2]))
-			if currentRoom == nil {
-				fmt.Println("Please pick a room before you blacklist someone.")
-				fmt.Println("Use command `> select <chatroom>`")
-				altEthos.Close(fd)
-				continue
-			} else if currentRoom.Owner != owner {
-				fmt.Printf("You(%s) are not the owner of the chatroom %s.\n", owner, currentRoom.Name)
-				altEthos.Close(fd)
-				continue
-			} else if user == owner {
-				fmt.Printf("You(%s) cannot blacklist yourself from the chatroom %s.\n", owner, currentRoom.Name)
-				altEthos.Close(fd)
-				continue
+		tree = altEthos.WaitTreeCreateOr(next)
+		tree, _ = altEthos.Block(tree)
+		completed, pending := altEthos.GetTreeEvents(tree)
+		for _, eventId := range completed {
+			eventInfo, status := altEthos.OnComplete(eventId)
+			if status != syscall.StatusOk {
+				log.Println("OnComplete_failed", eventInfo, status)
+				return
 			}
-
-			log.Printf("Sending blacklistUser request in chatroom %s for user %s\n", currentRoom, user)
-			call := &ChatRpcBlacklistUser{currentRoom.Name, owner}
-			status := altEthos.ClientCall(fd, call)
-			checkRpcStatus(status)
-		} else if ok, _ := regexp.MatchString(`> quit`, text); ok {
-			log.Println("Quitting application.")
-			altEthos.Exit(syscall.StatusOk)
-		} else if ok, _ := regexp.MatchString(`> help`, text); ok {
-			printUsage()
-		} else if ok, _ := regexp.MatchString(`> select [A-Za-z0-9_\-]+`, text); ok {
-			name := strings.TrimSpace(strings.Split(text, " ")[2])
-			call := &ChatRpcSelectChatRoom{name, owner}
-			status = altEthos.ClientCall(fd, call)
-			checkRpcStatus(status)
-		} else {
-			if currentRoom != nil {
-				now := time.Nanoseconds()
-				msg := Message{*currentRoom, owner, now, text}
-				call := &ChatRpcPostMessage{msg}
-				status = altEthos.ClientCall(fd, call)
-				checkRpcStatus(status)
-			}
+			eventInfo.Do()
 		}
 
-		altEthos.Close(fd)
+		next = nil
+		next = append(next, pending...)
+		next = append(next, altEthos.RetrievePostedEvents()...)
 	}
 }

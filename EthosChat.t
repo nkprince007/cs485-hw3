@@ -19,5 +19,5 @@ ChatRpc interface {
     BlacklistUser(roomName string, user User) (status bool)
     SelectChatRoom(name string, user User) (room ChatRoom, status bool)
     GetMessages(room ChatRoom) (messages []Message)
-    PostMessage(msg Message) (status bool)
+    PostMessage(msg Message) (status bool, issue string)
 }
