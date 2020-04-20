@@ -26,7 +26,7 @@ func listChatRoomsReply(rooms []ChatRoom) (ChatRpcProcedure) {
 	log.Println("Received listChatRoom reply: ", rooms)
 	if len(rooms) > 0 {
 		for _, room := range(rooms) {
-			fmt.Printf("[%s]\n", room.Name)
+			fmt.Println(room.Name)
 		}
 	} else {
 		fmt.Println("No chatrooms found.")
@@ -47,9 +47,9 @@ func createChatRoomReply(room ChatRoom, status bool) (ChatRpcProcedure) {
 func blacklistUserReply(status bool) (ChatRpcProcedure) {
 	log.Println("Finished blacklistUser")
 	if status {
-		fmt.Println("User blacklisted successfully.\n")
+		fmt.Println("User blacklisted successfully.")
 	} else {
-		fmt.Println("Selected chatroom does not exist.\n")
+		fmt.Println("Selected chatroom does not exist.")
 	}
 	return nil
 }
@@ -59,6 +59,7 @@ func selectChatRoomReply(room ChatRoom, status bool) (ChatRpcProcedure) {
 		fmt.Println("ChatRoom does not exist or user blacklisted. Please try again.")
 	} else {
 		fmt.Printf("ChatRoom %s selected.\n", room.Name)
+		currentRoom = &room
 	}
 	return nil
 }
@@ -76,6 +77,7 @@ func printUsage() {
 	fmt.Println("> help\t\t- Show help info")
 	fmt.Println("> create <name>\t- Create a chat room with given name")
 	fmt.Println("> select <name>\t- Opens the chat room with given name")
+	fmt.Println("> blacklist <user>\t- Blacklist user from current chat room")
 	fmt.Println("> quit\t\t- Exit application")
 }
 
@@ -114,12 +116,16 @@ func main() {
 			if currentRoom == nil {
 				fmt.Println("Please pick a room before you blacklist someone.")
 				fmt.Println("Use command `> select <chatroom>`")
+				altEthos.Close(fd)
 				continue
 			} else if currentRoom.Owner != owner {
 				fmt.Printf("You(%s) are not the owner of the chatroom %s.\n", owner, currentRoom.Name)
+				altEthos.Close(fd)
 				continue
 			} else if user == owner {
 				fmt.Printf("You(%s) cannot blacklist yourself from the chatroom %s.\n", owner, currentRoom.Name)
+				altEthos.Close(fd)
+				continue
 			}
 
 			log.Printf("Sending blacklistUser request in chatroom %s for user %s\n", currentRoom, user)

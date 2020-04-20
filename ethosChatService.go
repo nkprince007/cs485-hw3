@@ -92,6 +92,13 @@ func createChatRoom(owner User, name string) (ChatRpcProcedure) {
 		altEthos.Exit(status)
 	}
 
+	dirPath := "/user/nobody/" + name
+	status = altEthos.DirectoryCreate(dirPath, &chatRoom, "all")
+	if status != syscall.StatusOk {
+		log.Println("CreateDirectory failed:", chatRoom, status)
+		altEthos.Exit(status)
+	}
+
 	log.Printf("Chatroom created: %s\n", chatRoom.Name)
 	return &ChatRpcCreateChatRoomReply{chatRoom, true}
 }
